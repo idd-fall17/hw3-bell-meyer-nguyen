@@ -3,11 +3,12 @@ package com.example.androidthings.myproject;
 import com.example.androidthings.myproject.utils.SerialMidi;
 import com.google.android.things.contrib.driver.mma8451q.Mma8451Q;
 
-import android.util.FloatProperty;
+import android.os.Handler;
 import android.util.Log;
 
 import java.io.IOException;
-import java.util.HashMap;
+import java.util.NavigableMap;
+import java.util.TreeMap;
 
 /**
  * Demo of the SerialMidi class
@@ -16,107 +17,150 @@ import java.util.HashMap;
 
 public class MidiTestApp extends SimplePicoPro {
     SerialMidi serialMidi;
+
+    // synth controls
     int channel = 0;
-    int velocity = 127; //0..127
+    int velocity = 127;
     int timbre_value = 0;
     final int timbre_controller = 0x47;
-    float velocityFloat;
-    int curNote;
+    boolean instrumentState = false;
     int prevNote;
+    String prevLightState;
+    int prevTimbre;
+    NavigableMap noteMap;
+    NavigableMap timbreMap;
+    int curNote;
 
+    // instruments
+    int[] instruments = {1, 25, 59, 67, 53, 55};
+    int instrumentCounter = 0;
+
+    // vars for sensor readings
     Mma8451Q accelerometer;
     float[] xyz = {0.f,0.f,0.f};
-
     float force, light;
 
     @Override
     public void setup() {
+
+        // initialize new synthesizer
         uartInit(UART6,115200);
         serialMidi = new SerialMidi(UART6);
 
+        // initialize the analogue readings
         analogInit();
 
-        createNoteHMap();
-
-
+        // get new accelerometer
+        /*
         try {
             accelerometer = new Mma8451Q("I2C1");
             accelerometer.setMode(Mma8451Q.MODE_ACTIVE);
         } catch (IOException e) {
             Log.e("MMA8451App","setup",e);
         }
+        */
 
+        // create maps from analogue readings to synth values
+        noteMap = createNoteMap();
+        timbreMap = createTimbreMap();
     }
 
-    private void createNoteHMap() {
-        HashMap<Integer, Integer> noteMap = new HashMap<Integer, Integer>();
+    private NavigableMap<Float, Integer> createNoteMap() {
+        NavigableMap<Float, Integer> noteMap = new TreeMap<Float, Integer>();
+        noteMap.put((float) 0.0, SerialMidi.MIDI_C4);
+        noteMap.put((float) 0.4, SerialMidi.MIDI_D4);
+        noteMap.put((float) 0.6, SerialMidi.MIDI_E4);
+        noteMap.put((float) 0.8, SerialMidi.MIDI_F4);
+        noteMap.put((float) 1.0, SerialMidi.MIDI_G4);
+        noteMap.put((float) 2.0, SerialMidi.MIDI_A5);
+        noteMap.put((float) 3.0, SerialMidi.MIDI_B5);
+        noteMap.put((float) 3.3, -1);
+
+        return noteMap;
     }
+
+    private NavigableMap<Float, Integer> createTimbreMap() {
+        NavigableMap<Float, Integer> timbreMap = new TreeMap<Float, Integer>();
+        timbreMap.put((float) 0.0, 0);
+        timbreMap.put((float) 1.0, 33);
+        timbreMap.put((float) 2.0, 66);
+        timbreMap.put((float) 3.0, 100);
+        timbreMap.put((float) 4.0, 127);
+        return timbreMap;
+    }
+
+    // handler + runnable for toggling instrument state
+    Handler toggleInstrumentHandler = new Handler();
+    Runnable toggleInstrumentRunnable = new Runnable() {
+        @Override
+        public void run() {
+            noteOffHandler.removeCallbacks(noteOffRunnable);
+            noteOffHandler.postDelayed(noteOffRunnable, 2000);
+        }
+    };
+
+    // handler for turning off note
+    Handler noteOffHandler = new Handler();
+    Runnable noteOffRunnable = new Runnable() {
+        @Override
+        public void run() {
+            print("CUR NOTE " + curNote);
+            serialMidi.midi_note_off(channel, curNote, velocity);
+        }
+    };
 
     @Override
     public void loop() {
+        // get analogue readings
+        force = analogRead(A0); // this is pitch
+        light = analogRead(A1); // this is note ON/OFF
+        float acceleration = (float) 0.0; // this is timbre
+        //print("FORCE: " + force);
+        //print("LIGHT: " + light);
 
-        force = analogRead(A0);
-        light = analogRead(A1);
-        int note;
-        println("" + force + "");
+        delay(300);
 
-        if(force < .5) {
-            note = SerialMidi.MIDI_A4;
-        } else if(force < 1){
-            note = SerialMidi.MIDI_B4;
-        } else if (force < 1.5) {
-            note = SerialMidi.MIDI_C4;
-        } else if (force < 2) {
-            note = SerialMidi.MIDI_D4;
-        } else if (force < 2.5) {
-            note = SerialMidi.MIDI_E4;
-        } else {
-            //note = SerialMidi.MIDI_F4;
-            note = -1;
-        }
-
-        //delay(50);
-        if(note != prevNote) {
-            serialMidi.midi_note_off(channel, note, velocity);
-        }
-
-        prevNote = note;
-        //serialMidi.midi_controller_change(channel,timbre_controller,timbre_value);
-
-        if(note > 0) {
-            serialMidi.midi_note_on(channel, note, velocity);
-        }
-    }
-
-    private void scratch() {
+        /*
         try {
             xyz = accelerometer.readSample();
-            //println("X: "+xyz[0]+"   Y: "+xyz[1]+"   Z: "+xyz[2]);
+            println("X: "+xyz[0]+"   Y: "+xyz[1]+"   Z: "+xyz[2]);
+            acceleration = xyz[0];
         } catch (IOException e) {
             Log.e("MMA8451App","loop",e);
         }
+        */
 
+        // if light sensor is covered for at least 1 second, then hold note
+        String curLightState = light > .5 ? "covered" : "notCovered";
+        if(curLightState == "covered") {
+            toggleInstrumentHandler.postDelayed(toggleInstrumentRunnable, 1000);
+        } else {
+            toggleInstrumentHandler.removeCallbacks(toggleInstrumentRunnable);
+        }
 
-        velocityFloat = xyz[0] * 100;
-        velocity = ((int) velocityFloat);
-        println("   X: "+xyz[0]);
+        // save light state so we only act on changes
+        prevLightState = curLightState;
 
-        delay(200);
+        // convert the force sensor value to a note
+        int note = (int) noteMap.floorEntry(force).getValue();
 
-        serialMidi.midi_note_on(channel,SerialMidi.MIDI_E4,velocity);
-        delay(200);
-        serialMidi.midi_note_off(channel,SerialMidi.MIDI_E4,velocity);
-        delay(200);
-        serialMidi.midi_note_on(channel,SerialMidi.MIDI_G4,velocity);
-        delay(200);
-        serialMidi.midi_note_off(channel,SerialMidi.MIDI_G4,velocity);
-        delay(200);
+        // turn on note for 1.5s then turn off
+        if(note != prevNote && note != -1) {
+            curNote = note;
+            serialMidi.midi_note_on(channel, note, velocity);
+            noteOffHandler.postDelayed(noteOffRunnable, 2000);
+            prevNote = note;
+        }
 
-        //
-        timbre_value+=5;
-        if(timbre_value>=127)
-            timbre_value=0;
-        serialMidi.midi_controller_change(channel,timbre_controller,timbre_value);
+        /*
+        // convert acceleration to timbre
+        int timbreValue = (int) timbreMap.floorEntry(acceleration).getValue();
 
+        // check for timbre change
+        if(prevTimbre != timbreValue) {
+            serialMidi.midi_controller_change(channel, timbre_controller, timbre_value);
+            prevTimbre = timbreValue;
+        }
+        */
     }
 }
