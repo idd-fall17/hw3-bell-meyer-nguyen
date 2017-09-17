@@ -1,10 +1,15 @@
 package com.example.androidthings.myproject;
+import com.example.androidthings.myproject.utils.SerialMidi;
 
 import android.util.Log;
 
 import java.io.IOException;
 
 import com.google.android.things.contrib.driver.mma8451q.Mma8451Q;
+
+import android.os.Handler;
+import java.util.NavigableMap;
+import java.util.TreeMap;
 
 /**
  * HW3 Template
@@ -24,54 +29,125 @@ import com.google.android.things.contrib.driver.mma8451q.Mma8451Q;
  */
 
 public class Hw3TemplateApp extends SimplePicoPro {
+    SerialMidi serialMidi;
 
-    Mma8451Q accelerometer;
+    // synth controls
+    int channel = 0;
+    int velocity = 127;
+    int timbreValue = 0;
+    int prevTimbre;
+    final int timbre_controller = 0x47;
+    int prevNote;
+    String prevLightState;
+    NavigableMap noteMap;
+    NavigableMap timbreMap;
+    int noteLength = 2000;
+    int noteToHold;
+    Runnable currNoteOffRunnable;
 
-    float[] xyz = {0.f,0.f,0.f}; //store X,Y,Z acceleration of MMA8451 accelerometer here [units: G]
-    float a0,a1,a2,a3; //store analog readings from ADS1015 ADC here [units: V]
+    // vars for sensor readings
+    float force, light, flex;
 
+    @Override
     public void setup() {
 
-        // Initialize the serial port for communicating to a PC
-        uartInit(UART6,9600);
+        // initialize new synthesizer
+        uartInit(UART6,115200);
+        serialMidi = new SerialMidi(UART6);
 
-        // Initialize the Analog-to-Digital converter on the HAT
-        analogInit(); //need to call this first before calling analogRead()
+        // initialize the analogue readings
+        analogInit();
 
-        // Initialize the MMQ8451 Accelerometer
-        try {
-            accelerometer = new Mma8451Q("I2C1");
-            accelerometer.setMode(Mma8451Q.MODE_ACTIVE);
-        } catch (IOException e) {
-            Log.e("HW3Template","setup",e);
-        }
+        // create maps from analogue readings to synth values
+        noteMap = createNoteMap();
+        timbreMap = createTimbreMap();
     }
 
+    @Override
     public void loop() {
-        // read all analog channels and print to UART
-        a0 = analogRead(A0);
-        a1 = analogRead(A1);
-        a2 = analogRead(A2);
-        a3 = analogRead(A3);
-        println(UART6,"A0: "+a0+"   A1: "+a1+"   A2: "+a2+"   A3: "+a3); // this goes to the Serial port
-        println("A0: "+a0+"   A1: "+a1+"   A2: "+a2+"   A3: "+a3); // this goes to the Android Monitor in Android Studio
 
+        // get analogue readings
+        force = analogRead(A0); // this is pitch
+        light = analogRead(A1); // this is note ON/OFF
+        flex = analogRead(A3); // this is timbre
+        //print("FORCE: " + force);
+        //print("LIGHT: " + light);
 
-        // read I2C accelerometer and print to UART
-        try {
-            xyz = accelerometer.readSample();
-            println(UART6,"X: "+xyz[0]+"   Y: "+xyz[1]+"   Z: "+xyz[2]);
-            println("X: "+xyz[0]+"   Y: "+xyz[1]+"   Z: "+xyz[2]);
+        delay(300); // is this the right delay?
 
-            //use this line instead for unlabeled numbers separated by tabs that work with Arduino's SerialPlotter:
-            //println(UART6,xyz[0]+"\t"+xyz[1]+"\t"+xyz[2]); // this goes to the Serial port
+        // do something with the flex
+        /*
+        int timbreValue = (int) timbreMap.floorEntry(flex).getValue();
+        // timbre value goes from 0 to 127
 
-        } catch (IOException e) {
-            Log.e("HW3Template","loop",e);
+        // check for timbre change
+        if(prevTimbre != timbreValue) {
+            serialMidi.midi_controller_change(channel, timbre_controller, timbreValue);
+            prevTimbre = timbreValue;
+        }
+        */
+
+        // convert the force sensor value to a note
+        int note = (int) noteMap.floorEntry(force).getValue();
+
+        // turn on note for 2s (if diff from previous)
+        if(note != prevNote && note != -1) {
+            serialMidi.midi_note_on(channel, note, velocity);
+            currNoteOffRunnable = createNoteOffRunnable(note);
+            noteOffHandler.postDelayed(currNoteOffRunnable, noteLength);
+            prevNote = note;
         }
 
+        // detect whether light sensor is covered
+        String curLightState = light > .5 ? "covered" : "notCovered";
 
-        delay(100);
+        // if light sensor is covered hold the note and keep track of the note being held
+        if(curLightState == "covered" && prevLightState == "notCovered") {
+            noteOffHandler.removeCallbacks(currNoteOffRunnable);
+            noteToHold = note;
+        }
 
+        // if light sensor cover is released then turn off held note
+        if(curLightState == "Notcovered") {
+            Runnable noteOffRunnable = createNoteOffRunnable(noteToHold);
+            noteOffHandler.postDelayed(noteOffRunnable, noteLength);
+        }
     }
+
+    private NavigableMap<Float, Integer> createNoteMap() {
+        NavigableMap<Float, Integer> noteMap = new TreeMap<Float, Integer>();
+        noteMap.put((float) 0.0, SerialMidi.MIDI_C4);
+        noteMap.put((float) 0.4, SerialMidi.MIDI_D4);
+        noteMap.put((float) 0.6, SerialMidi.MIDI_E4);
+        noteMap.put((float) 0.8, SerialMidi.MIDI_F4);
+        noteMap.put((float) 1.0, SerialMidi.MIDI_G4);
+        noteMap.put((float) 2.0, SerialMidi.MIDI_A5);
+        noteMap.put((float) 3.0, SerialMidi.MIDI_B5);
+        noteMap.put((float) 3.3, -1);
+
+        return noteMap;
+    }
+
+    private NavigableMap<Float, Integer> createTimbreMap() {
+        NavigableMap<Float, Integer> timbreMap = new TreeMap<Float, Integer>();
+        timbreMap.put((float) 1.0, 100);
+        timbreMap.put((float) 2.0, 66);
+        timbreMap.put((float) 2.5, 0);
+        timbreMap.put((float) 2.8, 66);
+        timbreMap.put((float) 3.1, 100);
+        timbreMap.put((float) 3.4, 127);
+
+        return timbreMap;
+    }
+
+    // handler for turning note off
+    Handler noteOffHandler = new Handler();
+    private Runnable createNoteOffRunnable(final int note){
+        Runnable noteOffRunnable = new Runnable(){
+            public void run() {
+                serialMidi.midi_note_off(channel, note, velocity);
+            };
+        };
+        return noteOffRunnable;
+    };
 }

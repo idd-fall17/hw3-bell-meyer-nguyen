@@ -56,8 +56,7 @@ public class MidiTestApp extends SimplePicoPro {
         // get analogue readings
         force = analogRead(A0); // this is pitch
         light = analogRead(A1); // this is note ON/OFF
-        flex = analogRead(A2); // this is note ON/OFF
-        float acceleration = (float) 0.0; // this is timbre
+        flex = analogRead(A3); // this is timbre
         //print("FORCE: " + force);
         //print("LIGHT: " + light);
 
@@ -89,7 +88,7 @@ public class MidiTestApp extends SimplePicoPro {
         // detect whether light sensor is covered
         String curLightState = light > .5 ? "covered" : "notCovered";
 
-        // if light sensor is covered hold the note (but only one time per cover)
+        // if light sensor is covered hold the note and keep track of the note being held
         if(curLightState == "covered" && prevLightState == "notCovered") {
             noteOffHandler.removeCallbacks(currNoteOffRunnable);
             noteToHold = note;
@@ -118,11 +117,13 @@ public class MidiTestApp extends SimplePicoPro {
 
     private NavigableMap<Float, Integer> createTimbreMap() {
         NavigableMap<Float, Integer> timbreMap = new TreeMap<Float, Integer>();
-        timbreMap.put((float) 0.0, 0);
-        timbreMap.put((float) 1.0, 33);
+        timbreMap.put((float) 1.0, 100);
         timbreMap.put((float) 2.0, 66);
-        timbreMap.put((float) 3.0, 100);
-        timbreMap.put((float) 4.0, 127);
+        timbreMap.put((float) 2.5, 0);
+        timbreMap.put((float) 2.8, 66);
+        timbreMap.put((float) 3.1, 100);
+        timbreMap.put((float) 3.4, 127);
+
         return timbreMap;
     }
 
