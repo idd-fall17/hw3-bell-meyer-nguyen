@@ -21,24 +21,19 @@ public class MidiTestApp extends SimplePicoPro {
     // synth controls
     int channel = 0;
     int velocity = 127;
-    int timbre_value = 0;
+    int timbreValue = 0;
+    int prevTimbre;
     final int timbre_controller = 0x47;
-    boolean instrumentState = false;
     int prevNote;
     String prevLightState;
-    int prevTimbre;
     NavigableMap noteMap;
     NavigableMap timbreMap;
-    int curNote;
-
-    // instruments
-    int[] instruments = {1, 25, 59, 67, 53, 55};
-    int instrumentCounter = 0;
+    int noteLength = 2000;
+    int noteToHold;
+    Runnable currNoteOffRunnable;
 
     // vars for sensor readings
-    Mma8451Q accelerometer;
-    float[] xyz = {0.f,0.f,0.f};
-    float force, light;
+    float force, light, flex;
 
     @Override
     public void setup() {
@@ -50,19 +45,61 @@ public class MidiTestApp extends SimplePicoPro {
         // initialize the analogue readings
         analogInit();
 
-        // get new accelerometer
-        /*
-        try {
-            accelerometer = new Mma8451Q("I2C1");
-            accelerometer.setMode(Mma8451Q.MODE_ACTIVE);
-        } catch (IOException e) {
-            Log.e("MMA8451App","setup",e);
-        }
-        */
-
         // create maps from analogue readings to synth values
         noteMap = createNoteMap();
         timbreMap = createTimbreMap();
+    }
+
+    @Override
+    public void loop() {
+
+        // get analogue readings
+        force = analogRead(A0); // this is pitch
+        light = analogRead(A1); // this is note ON/OFF
+        flex = analogRead(A2); // this is note ON/OFF
+        float acceleration = (float) 0.0; // this is timbre
+        //print("FORCE: " + force);
+        //print("LIGHT: " + light);
+
+        delay(300); // is this the right delay?
+
+        // do something with the flex
+        /*
+        int timbreValue = (int) timbreMap.floorEntry(flex).getValue();
+        // timbre value goes from 0 to 127
+
+        // check for timbre change
+        if(prevTimbre != timbreValue) {
+            serialMidi.midi_controller_change(channel, timbre_controller, timbreValue);
+            prevTimbre = timbreValue;
+        }
+        */
+
+        // convert the force sensor value to a note
+        int note = (int) noteMap.floorEntry(force).getValue();
+
+        // turn on note for 2s (if diff from previous)
+        if(note != prevNote && note != -1) {
+            serialMidi.midi_note_on(channel, note, velocity);
+            currNoteOffRunnable = createNoteOffRunnable(note);
+            noteOffHandler.postDelayed(currNoteOffRunnable, noteLength);
+            prevNote = note;
+        }
+
+        // detect whether light sensor is covered
+        String curLightState = light > .5 ? "covered" : "notCovered";
+
+        // if light sensor is covered hold the note (but only one time per cover)
+        if(curLightState == "covered" && prevLightState == "notCovered") {
+            noteOffHandler.removeCallbacks(currNoteOffRunnable);
+            noteToHold = note;
+        }
+
+        // if light sensor cover is released then turn off held note
+        if(curLightState == "Notcovered") {
+            Runnable noteOffRunnable = createNoteOffRunnable(noteToHold);
+            noteOffHandler.postDelayed(noteOffRunnable, noteLength);
+        }
     }
 
     private NavigableMap<Float, Integer> createNoteMap() {
@@ -89,78 +126,14 @@ public class MidiTestApp extends SimplePicoPro {
         return timbreMap;
     }
 
-    // handler + runnable for toggling instrument state
-    Handler toggleInstrumentHandler = new Handler();
-    Runnable toggleInstrumentRunnable = new Runnable() {
-        @Override
-        public void run() {
-            noteOffHandler.removeCallbacks(noteOffRunnable);
-            noteOffHandler.postDelayed(noteOffRunnable, 2000);
-        }
-    };
-
-    // handler for turning off note
+    // handler for turning note off
     Handler noteOffHandler = new Handler();
-    Runnable noteOffRunnable = new Runnable() {
-        @Override
-        public void run() {
-            print("CUR NOTE " + curNote);
-            serialMidi.midi_note_off(channel, curNote, velocity);
-        }
+    private Runnable createNoteOffRunnable(final int note){
+        Runnable noteOffRunnable = new Runnable(){
+            public void run() {
+                serialMidi.midi_note_off(channel, note, velocity);
+            };
+        };
+        return noteOffRunnable;
     };
-
-    @Override
-    public void loop() {
-        // get analogue readings
-        force = analogRead(A0); // this is pitch
-        light = analogRead(A1); // this is note ON/OFF
-        float acceleration = (float) 0.0; // this is timbre
-        //print("FORCE: " + force);
-        //print("LIGHT: " + light);
-
-        delay(300);
-
-        /*
-        try {
-            xyz = accelerometer.readSample();
-            println("X: "+xyz[0]+"   Y: "+xyz[1]+"   Z: "+xyz[2]);
-            acceleration = xyz[0];
-        } catch (IOException e) {
-            Log.e("MMA8451App","loop",e);
-        }
-        */
-
-        // if light sensor is covered for at least 1 second, then hold note
-        String curLightState = light > .5 ? "covered" : "notCovered";
-        if(curLightState == "covered") {
-            toggleInstrumentHandler.postDelayed(toggleInstrumentRunnable, 1000);
-        } else {
-            toggleInstrumentHandler.removeCallbacks(toggleInstrumentRunnable);
-        }
-
-        // save light state so we only act on changes
-        prevLightState = curLightState;
-
-        // convert the force sensor value to a note
-        int note = (int) noteMap.floorEntry(force).getValue();
-
-        // turn on note for 1.5s then turn off
-        if(note != prevNote && note != -1) {
-            curNote = note;
-            serialMidi.midi_note_on(channel, note, velocity);
-            noteOffHandler.postDelayed(noteOffRunnable, 2000);
-            prevNote = note;
-        }
-
-        /*
-        // convert acceleration to timbre
-        int timbreValue = (int) timbreMap.floorEntry(acceleration).getValue();
-
-        // check for timbre change
-        if(prevTimbre != timbreValue) {
-            serialMidi.midi_controller_change(channel, timbre_controller, timbre_value);
-            prevTimbre = timbreValue;
-        }
-        */
-    }
 }
