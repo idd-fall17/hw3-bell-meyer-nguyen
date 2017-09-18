@@ -97,7 +97,7 @@ public class Hw3TemplateApp extends SimplePicoPro {
         }
 
         // detect whether light sensor is covered
-        String curLightState = light > 1 ? "covered" : "notCovered";
+        String curLightState = light > .7 ? "covered" : "notCovered";
 
         // if light sensor is covered hold the note and keep track of the note being held
         if(curLightState == "covered" && prevLightState == "notCovered") {
@@ -133,6 +133,8 @@ public class Hw3TemplateApp extends SimplePicoPro {
     private Runnable createNoteOffRunnable(final int note){
         Runnable noteOffRunnable = new Runnable(){
             public void run() {
+                boolean noteOnAgain = notesOnList.contains(note);
+                if(noteOnAgain) return; // this means note was triggered again before handler turned it off
                 if(noteBeingHeld == note) return; // never turn off note that is being held on purpose
                 serialMidi.midi_note_off(channel, note, velocity);
             };
