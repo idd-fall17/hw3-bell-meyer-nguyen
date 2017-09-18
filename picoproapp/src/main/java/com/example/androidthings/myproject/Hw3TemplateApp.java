@@ -1,12 +1,5 @@
 package com.example.androidthings.myproject;
 import com.example.androidthings.myproject.utils.SerialMidi;
-
-import android.util.Log;
-
-import java.io.IOException;
-
-import com.google.android.things.contrib.driver.mma8451q.Mma8451Q;
-
 import android.os.Handler;
 import java.util.NavigableMap;
 import java.util.TreeMap;
@@ -89,13 +82,14 @@ public class Hw3TemplateApp extends SimplePicoPro {
                 currNoteOffRunnable = createNoteOffRunnable(prevNote);
                 noteOffHandler.postDelayed(currNoteOffRunnable, noteLength);
                 currNoteOffRunnable = createNoteOffRunnable(note);
-                noteOffHandler.postDelayed(currNoteOffRunnable, 5000);
+                noteOffHandler.postDelayed(currNoteOffRunnable, 3000);
                 prevNote = note;
             }
         }
 
         // detect whether light sensor is covered
         String curLightState = light > .5 ? "covered" : "notCovered";
+        print("LIGHT " + light);
 
         // if light sensor is covered hold the note and keep track of the note being held
         if(curLightState == "covered" && prevLightState == "notCovered") {
