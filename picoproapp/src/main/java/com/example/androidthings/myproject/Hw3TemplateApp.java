@@ -86,8 +86,10 @@ public class Hw3TemplateApp extends SimplePicoPro {
             } else {
                 sameNoteNotOK = true;
                 serialMidi.midi_note_on(channel, note, velocity);
-                currNoteOffRunnable = createNoteOffRunnable(note);
+                currNoteOffRunnable = createNoteOffRunnable(prevNote);
                 noteOffHandler.postDelayed(currNoteOffRunnable, noteLength);
+                currNoteOffRunnable = createNoteOffRunnable(note);
+                noteOffHandler.postDelayed(currNoteOffRunnable, 5000);
                 prevNote = note;
             }
         }
@@ -105,7 +107,9 @@ public class Hw3TemplateApp extends SimplePicoPro {
         // if light sensor cover is released then turn off held note
         if(curLightState == "notCovered" && prevLightState == "covered") {
             print("releasing NOTE " + noteBeingHeld);
-            Runnable noteOffRunnable = createNoteOffRunnable(noteBeingHeld);
+            note = noteBeingHeld;
+            noteBeingHeld = -1;
+            Runnable noteOffRunnable = createNoteOffRunnable(note);
             noteOffHandler.postDelayed(noteOffRunnable, noteLength);
         }
 
@@ -130,6 +134,7 @@ public class Hw3TemplateApp extends SimplePicoPro {
     private Runnable createNoteOffRunnable(final int note){
         Runnable noteOffRunnable = new Runnable(){
             public void run() {
+                if(noteBeingHeld == note) return;
                 serialMidi.midi_note_off(channel, note, velocity);
                 sameNoteNotOK = false;
             };
