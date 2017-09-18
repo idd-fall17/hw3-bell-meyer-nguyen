@@ -26,9 +26,9 @@ public class Hw3TemplateApp extends SimplePicoPro {
 
     // synth controls
     int channel = 0;
-    boolean sameNoteNotOK;
     int velocity = 127;
     int prevNote;
+    int curNote;
     String prevLightState = "notCovered";
     NavigableMap noteMap;
     int noteLength = 2000;
@@ -48,7 +48,7 @@ public class Hw3TemplateApp extends SimplePicoPro {
         // initialize the analogue readings
         analogInit();
 
-        // create maps from analogue readings to synth values
+        // create maps from analogue readings to synth note values
         noteMap = createNoteMap();
     }
 
@@ -60,7 +60,7 @@ public class Hw3TemplateApp extends SimplePicoPro {
         force = analogRead(A1); // this is pitch
         light = analogRead(A2); // this is note ON/OFF
 
-        delay(300);
+        delay(400);
 
         // translate flex sensor input to 0 to 127 range
         int timbreValue = Math.round(127 - 127 * (flex - (float) 2.4));
@@ -71,36 +71,34 @@ public class Hw3TemplateApp extends SimplePicoPro {
         // convert the force sensor value to a note
         int note = (int) noteMap.floorEntry(force).getValue();
 
+        // no note is being held so turn off current note
+        if(note == -1 && prevNote != -1) {
+            currNoteOffRunnable = createNoteOffRunnable(curNote);
+            noteOffHandler.postDelayed(currNoteOffRunnable, 3000);
+            prevNote = note;
+            return;
+        }
+
         // turn on note (if diff from previous)
-        if(note != -1 && note != noteBeingHeld) {
-            if(note == prevNote && sameNoteNotOK || note == prevNote && note != 69) {
-                 // in other words let the first note be played over and over but no other note
-                print("scipping this round");
-            } else {
-                sameNoteNotOK = true;
-                serialMidi.midi_note_on(channel, note, velocity);
-                currNoteOffRunnable = createNoteOffRunnable(prevNote);
-                noteOffHandler.postDelayed(currNoteOffRunnable, noteLength);
-                currNoteOffRunnable = createNoteOffRunnable(note);
-                noteOffHandler.postDelayed(currNoteOffRunnable, 3000);
-                prevNote = note;
-            }
+        if(note != -1 && note != noteBeingHeld && note != prevNote) {
+            curNote = note;
+            serialMidi.midi_note_on(channel, note, velocity); // turn on new note
+            currNoteOffRunnable = createNoteOffRunnable(prevNote); // turn off last note
+            noteOffHandler.postDelayed(currNoteOffRunnable, noteLength);
+            prevNote = note;
         }
 
         // detect whether light sensor is covered
-        String curLightState = light > .5 ? "covered" : "notCovered";
-        print("LIGHT " + light);
+        String curLightState = light > 1 ? "covered" : "notCovered";
 
         // if light sensor is covered hold the note and keep track of the note being held
         if(curLightState == "covered" && prevLightState == "notCovered") {
-            print("HOLDING NOTE " + note);
             noteOffHandler.removeCallbacks(currNoteOffRunnable);
             noteBeingHeld = note;
         }
 
         // if light sensor cover is released then turn off held note
         if(curLightState == "notCovered" && prevLightState == "covered") {
-            print("releasing NOTE " + noteBeingHeld);
             note = noteBeingHeld;
             noteBeingHeld = -1;
             Runnable noteOffRunnable = createNoteOffRunnable(note);
@@ -116,9 +114,9 @@ public class Hw3TemplateApp extends SimplePicoPro {
         NavigableMap<Float, Integer> noteMap = new TreeMap<Float, Integer>();
         noteMap.put((float) 0.0, SerialMidi.MIDI_C4);
         noteMap.put((float) 0.4, SerialMidi.MIDI_E4);
-        noteMap.put((float) 0.6, SerialMidi.MIDI_F4);
-        noteMap.put((float) 0.8, SerialMidi.MIDI_G4);
-        noteMap.put((float) 1.0, SerialMidi.MIDI_A5);
+        noteMap.put((float) 0.7, SerialMidi.MIDI_F4);
+        noteMap.put((float) 1.0, SerialMidi.MIDI_G4);
+        noteMap.put((float) 1.5, SerialMidi.MIDI_A5);
         noteMap.put((float) 3.3, -1);
         return noteMap;
     }
@@ -130,7 +128,6 @@ public class Hw3TemplateApp extends SimplePicoPro {
             public void run() {
                 if(noteBeingHeld == note) return;
                 serialMidi.midi_note_off(channel, note, velocity);
-                sameNoteNotOK = false;
             };
         };
         return noteOffRunnable;
