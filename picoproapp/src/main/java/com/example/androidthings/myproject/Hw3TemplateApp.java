@@ -79,7 +79,7 @@ public class Hw3TemplateApp extends SimplePicoPro {
         if(note == -1 && prevNote != -1) {
             for (Iterator<Integer> i = notesOnList.iterator(); i.hasNext();) {
                 currNoteOffRunnable = createNoteOffRunnable(i.next());
-                noteOffHandler.postDelayed(currNoteOffRunnable, 3000);
+                noteOffHandler.postDelayed(currNoteOffRunnable, 2100);
                 i.remove();
             }
             prevNote = note;
